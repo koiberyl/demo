@@ -837,6 +837,7 @@
   .ma { padding: 5px 0; display: flex; }
   .ma .b { background: var(--migoo-say); border-radius: 20px; padding: 13px 15px; max-width: 88%;
     font-size: 15.5px; line-height: 1.45; color: var(--text-87); letter-spacing: -.2px; }
+  .ma .b.order-confirm { white-space: pre-line; }
   .ma .b code { font-family: var(--mono); font-size: 13.5px; color: var(--ink); background: none; }
   /* 思考中(query 发出后的 2s) */
   .ma .b.tping { display: flex; gap: 4.5px; align-items: center; padding: 16px 16px; }
@@ -2231,6 +2232,7 @@ function closeShopeePDP(){ document.getElementById('spdp').classList.remove('sho
    - 无地址点 Place Order → 弹"地址缺失"(Later / Add Address);有地址 → 成功页
    - IDR 文案按 US 语境换成 $1 */
 let spwState = null;
+let spwView = null;
 /* 跨多次进入 Shopee 的会话级状态:代注册通知只在第一次进 checkout 弹一次;
    填过的地址视为已被 Shopee 保存,下次进来直接带上,再点地址卡进的是 Address Selection。
    只有 Reset 会清掉这两样。 */
@@ -2242,11 +2244,44 @@ function openShopeeWeb(id){
   spwGo('checkout');
   document.getElementById('spweb').classList.add('show');
 }
-function closeShopeeWeb(){ document.getElementById('spweb').classList.remove('show'); }
+function closeShopeeWeb(){ document.getElementById('spweb').classList.remove('show'); spwView = null; }
+/* 下单完成后回到 Migoo:成功页下面的商品 PDP 已经完成任务,不应继续停留在前景。 */
+function returnToMigooAfterPurchase(){
+  closeShopeeWeb();
+  closePDP();
+  currentPdpId = null;
+  if (!document.getElementById('chat')?.classList.contains('show')) openCopilot();
+  showOrderConfirmation();
+}
+function showOrderConfirmation(){
+  const state = spwState, p = state && P[state.id];
+  if (!p) return;
+  const body = document.querySelector('#chat .cbody');
+  if (!body) return;
+  body.querySelector('[data-order-confirm]')?.remove();
+  const eta = state.ship === 'next' ? '1 Aug' : '31 Jul–2 Aug';
+  const item = `${p.brand} ${p.nm.split(' — ')[0]}`;
+  const row = document.createElement('div');
+  row.className = 'ma';
+  row.dataset.orderConfirm = 'true';
+  const bubble = document.createElement('div');
+  bubble.className = 'b order-confirm';
+  bubble.textContent = `Your order is confirmed.
+
+${item}${p.v ? ` · ${p.v}` : ''} · 1 item
+Total: $${spwTotal()}
+Estimated delivery: ${eta}
+
+Order #SP-0805-48317
+I’ll share tracking here when it ships.`;
+  row.appendChild(bubble);
+  body.appendChild(row);
+  chatScrollEnd();
+}
 const spwChrome = () => `
   ${statusbar()}
   <div class="wv-chrome">
-    <span class="wv-cir" onclick="closeShopeeWeb()">${IC_X}</span>
+    <span class="wv-cir" onclick="${spwView==='success' ? 'returnToMigooAfterPurchase()' : 'closeShopeeWeb()'}">${IC_X}</span>
     <span class="wv-url">u.shopee.co.us</span>
     <span class="wv-cir"><svg width="16" height="14" viewBox="0 0 20 16" fill="none"><rect x="1" y="1" width="18" height="14" rx="2" stroke="#1C1C1E" stroke-width="1.6"/><path d="M1 5h18" stroke="#1C1C1E" stroke-width="1.6"/></svg></span>
   </div>`;
@@ -2260,11 +2295,12 @@ const spwFoot = (back) => `
   </div>`;
 const spwTotal = () => (P[spwState.id].pr + (spwState.ship==='next'?1.2:0) + (spwState.protect?0.5:0)).toFixed(2);
 function spwGo(v){
+  spwView = v;
   const el = document.getElementById('spweb');
   el.innerHTML = spwChrome()
     + (v==='checkout' ? spwCheckoutHTML() : v==='address' ? spwAddressHTML() : v==='select' ? spwSelectHTML() : spwSuccessHTML())
     + spwFoot(v==='address' ? (spwAddrs.length ? "spwGo('select')" : "spwGo('checkout')")
-            : v==='select' ? "spwGo('checkout')" : 'closeShopeeWeb()');
+            : v==='select' ? "spwGo('checkout')" : v==='success' ? 'returnToMigooAfterPurchase()' : 'closeShopeeWeb()');
   el.querySelector('.sp-body')?.scrollTo(0,0);
   if (v==='checkout' && !spwNotifShown){
     spwNotifShown = true;
@@ -2328,6 +2364,9 @@ function spwCheckoutHTML(){
 function spwPlace(){
   if (!spwState.addr) return document.getElementById('spwModal').classList.add('show');
   spwGo('success');
+  /* 订单已完成,回到 Migoo 时不再把已购买商品的 PDP 留在底层。 */
+  closePDP();
+  currentPdpId = null;
 }
 /* —— New Address 表单 —— */
 /* 同一张表单两种入口:New(空表,默认开 Default)/ Edit(带入已存地址,可删除)。
@@ -2409,7 +2448,7 @@ function spwSuccessHTML(){
   return `
   <div class="sp-body" style="background:#F5F5F7">
     <div class="wv-hero">
-      <div class="ht"><svg onclick="closeShopeeWeb()" style="cursor:pointer" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M19 12H5m0 0 6-6m-6 6 6 6" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="ht"><svg onclick="returnToMigooAfterPurchase()" style="cursor:pointer" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M19 12H5m0 0 6-6m-6 6 6 6" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="cart"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 4h2.4l2.2 11.2a1.6 1.6 0 0 0 1.6 1.3h8.4a1.6 1.6 0 0 0 1.6-1.3L21 8H6.2" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="20" r="1.4" fill="#fff"/><circle cx="17.4" cy="20" r="1.4" fill="#fff"/></svg><i>55</i></span></div>
       <div class="hc"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.5 4.5L19 7.5" stroke="#EE4D2D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div class="t">You paid $${spwTotal()}</div>
